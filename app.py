@@ -84,12 +84,13 @@ def generate_chennai_data(n_cust, n_str):
       j: int(total_demand * np.random.uniform(0.3, 0.6)) for j in range(n_str)
   }
 
-  # Haversine distance in km approximation (~111 km per degree)
+  # Haversine distance in km approximation
   d = {}
   for i in range(n_cust):
     for j in range(n_str):
       lat1, lon1 = cust_coords[i]
       lat2, lon2 = store_coords[j]
+      # Approximate km distance (~111 km per degree)
       dist = np.sqrt((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2) * 111.0
       d[(i, j)] = dist
 
@@ -282,24 +283,3 @@ if results and results['status'] == 'Optimal':
     st.subheader(
         '📈 Network Cost vs. Number of Open Dark Stores (Sensitivity Analysis)'
     )
-    st.markdown(
-        'Analyzing how total cost behaves when capping the maximum allowed open dark stores (at 2, 5, 10, 20, 25).'
-    )
-
-    store_limits = [2, 5, 10, 20, 25]
-    limit_costs = []
-
-    for limit in store_limits:
-      if limit <= num_stores:
-        res_limit = solve_dark_store_model(max_stores_open=limit)
-        if res_limit and res_limit['status'] == 'Optimal':
-          limit_costs.append(res_limit['total_cost'])
-        else:
-          limit_costs.append(None)
-      else:
-        limit_costs.append(None)
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    valid_limits = [
-        store_limits[idx]
-        for idx, c in enumerate(limit
