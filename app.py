@@ -72,8 +72,6 @@ def generate_chennai_data(n_cust, n_str):
     lon = CHENNAI_CENTER[1] + np.random.uniform(-0.10, 0.10)
     store_coords[j] = (lat, lon)
 
-  D = {i: np.randint(10, 40) for i in range(n_cust)}
-  # Fallback if numpy version differs
   np.random.seed(42)
   D = {i: int(np.random.randint(15, 45)) for i in range(n_cust)}
   F = {
@@ -86,16 +84,13 @@ def generate_chennai_data(n_cust, n_str):
       j: int(total_demand * np.random.uniform(0.3, 0.6)) for j in range(n_str)
   }
 
-  # Haversine distance in km approximation
+  # Haversine distance in km approximation (~111 km per degree)
   d = {}
   for i in range(n_cust):
     for j in range(n_str):
       lat1, lon1 = cust_coords[i]
       lat2, lon2 = store_coords[j]
-      # Approximate km distance
-      dist = (
-          np.sqrt((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2) * 111.0
-      )  ~111 km per degree
+      dist = np.sqrt((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2) * 111.0
       d[(i, j)] = dist
 
   return cust_coords, store_coords, D, F, C, d
@@ -104,6 +99,7 @@ def generate_chennai_data(n_cust, n_str):
 cust_coords, store_coords, D, F, C, d = generate_chennai_data(
     num_customers, num_stores
 )
+
 
 # Optimization Execution Function
 def solve_dark_store_model(
@@ -145,11 +141,9 @@ def solve_dark_store_model(
     constraint.SetCoefficient(y[j], -C[j])
 
   # Constraint 3: Maximum Distance / Coverage limit per assignment
-  # If X_ij > 0, then d_ij must be <= custom_max_dist. Handled via big-M or upper bound on X_ij when d_ij > limit
   for i in range(num_customers):
     for j in range(num_stores):
       if d[(i, j)] > custom_max_dist:
-        # X_ij must be 0
         solver.Add(X[(i, j)] <= 0)
 
   # Optional limit on max stores open
@@ -205,7 +199,7 @@ if results and results['status'] == 'Optimal':
 
   # --- TABS FOR ORGANIZED VIEW ---
   tab1, tab2, tab3 = st.tabs(
-      ['🗺️ Detailed Solution Map', '📊 KPI & Allocation Table', '📈 Scenario Analysis (10k scale)']
+      ['🗺️ Detailed Solution Map', '📊 KPI & Allocation Table', '📈 Scenario Analysis']
   )
 
   with tab1:
@@ -229,7 +223,6 @@ if results and results['status'] == 'Optimal':
           icon=folium.Icon(color=color, icon=icon_name, prefix='fa'),
       ).add_to(m)
 
-      # Draw coverage circle for open stores
       if is_open:
         folium.Circle(
             location=store_coords[j],
@@ -296,7 +289,6 @@ if results and results['status'] == 'Optimal':
     store_limits = [2, 5, 10, 20, 25]
     limit_costs = []
 
-    # Run quick batch optimization for sensitivity analysis
     for limit in store_limits:
       if limit <= num_stores:
         res_limit = solve_dark_store_model(max_stores_open=limit)
@@ -308,31 +300,6 @@ if results and results['status'] == 'Optimal':
         limit_costs.append(None)
 
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(
-        store_limits[: len(limit_costs)],
-        [c for c in limit_costs if c is not None],
-        marker='o',
-        color='darkcyan',
-        linewidth=2.5,
-    )
-    ax.set_title(
-        'Total System Cost vs. Maximum Allowed Open Dark Stores',
-        fontsize=12,
-        weight='bold',
-    )
-    ax.set_xlabel('Max Allowed Open Dark Stores', fontsize=10)
-    ax.set_ylabel('Total System Cost (₹)', fontsize=10)
-    ax.grid(True, linestyle='--', alpha=0.6)
-    st.pyplot(fig)
-
-    st.info(
-        '💡 **Note for large-scale enterprise runs (e.g., 10,000 customers & 50 stores):** '
-        'You can adjust the sidebar inputs (`Number of Customers = 1000`, `Candidate Stores = 50`) '
-        'to run enterprise-grade instances directly within Streamlit.'
-    )
-
-else:
-    st.error(
-        '❌ The model is infeasible with the current parameters! '
-        'Try increasing the **Max Service Distance** or **Candidate Dark Stores** count.'
-    )
+    valid_limits = [
+        store_limits[idx]
+        for idx, c in enumerate(limit
