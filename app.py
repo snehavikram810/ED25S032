@@ -84,7 +84,7 @@ with st.sidebar:
     )
 
     submit_button = st.form_submit_button(
-        label='🚀 Run Optimization', use_container_width=True
+        label='🚀 Run Optimization', width='stretch'
     )
 
 
@@ -107,7 +107,6 @@ def generate_chennai_land_data(n_cust, n_str):
     store_coords[j] = (lat, lon)
 
   D = {i: int(np.random.randint(15, 45)) for i in range(n_cust)}
-  # Fixed defaults for underlying financials
   avg_fixed_cost = 120000
   F = {
       j: int(avg_fixed_cost * np.random.uniform(0.85, 1.15)) for j in range(n_str)
@@ -137,7 +136,6 @@ TRANSPORT_COST_PER_KM = 15.0
 REVENUE_PER_UNIT = 180.0
 
 
-# Optimization Execution Function
 def solve_dark_store_model(
     max_stores_open=None, custom_max_dist=max_distance_km
 ):
@@ -208,7 +206,6 @@ def solve_dark_store_model(
     return {'status': 'Infeasible'}
 
 
-# Run main optimization
 results = solve_dark_store_model()
 
 if results and results['status'] == 'Optimal':
@@ -217,7 +214,7 @@ if results and results['status'] == 'Optimal':
   total_system_cost = results['total_cost']
   max_profit = total_revenue - total_system_cost
 
-  # --- HUGE PROFIT HIGHLIGHT BOX ---
+  # HUGE PROFIT HIGHLIGHT BOX
   st.markdown(
       f"""
         <div class="profit-card">
@@ -228,19 +225,14 @@ if results and results['status'] == 'Optimal':
       unsafe_allow_html=True,
   )
 
-  # --- TABS FOR ORGANIZED VIEW ---
   tab1, tab2, tab3 = st.tabs(
       ['🗺️ Detailed Solution Map', '📊 KPI & Allocation Table', '📈 Scenario Profit Analysis']
   )
 
   with tab1:
-    st.subheader(
-        'Geospatial Visualisation across Chennai Land Hubs with Detailed Store'
-        ' Metrics'
-    )
+    st.subheader('Geospatial Visualisation across Chennai Land Hubs with Detailed Store Metrics')
     m = folium.Map(location=(13.0827, 80.2707), zoom_start=12)
 
-    # Plot Stores with Detailed Popups
     for j in range(num_stores):
       is_open = j in results['open_stores']
       color = 'green' if is_open else 'red'
@@ -283,7 +275,6 @@ if results and results['status'] == 'Optimal':
             fill_opacity=0.05,
         ).add_to(m)
 
-    # Plot Customers (sample subset if too large for browser performance)
     plot_limit = min(num_customers, 500)
     for i in range(plot_limit):
       folium.CircleMarker(
@@ -295,13 +286,6 @@ if results and results['status'] == 'Optimal':
           popup=f'<b>Customer {i}</b><br>Demand: {D[i]} units',
       ).add_to(m)
 
-    if num_customers > 500:
-      st.info(
-          f'ℹ️ Displaying first {plot_limit} customers on the interactive map '
-          'to ensure optimal browser rendering performance.'
-      )
-
-    # Plot Allocation Links
     link_count = 0
     for (i, j), val in results['allocations'].items():
       if link_count < 300:
@@ -336,12 +320,10 @@ if results and results['status'] == 'Optimal':
           'Capacity Utilization (%)': f'{utilization:.1f}%',
       })
 
-    st.dataframe(pd.DataFrame(store_summary), use_container_width=True)
+    st.dataframe(pd.DataFrame(store_summary), width='stretch')
 
   with tab3:
-    st.subheader(
-        '📈 Profit Analysis when Up to 2, 5, 10, 20, 25 Dark Stores Open'
-    )
+    st.subheader('📈 Profit Analysis when Up to 2, 5, 10, 20, 25 Dark Stores Open')
     st.markdown(
         'Evaluating network profitability across different restrictions on maximum open dark stores.'
     )
@@ -366,7 +348,7 @@ if results and results['status'] == 'Optimal':
         costs.append(None)
 
     valid_limits = [
-        store_limits[i] for i, p in enumerate(profits) if p is not None
+        store_limits[idx] for idx, p in enumerate(profits) if p is not None
     ]
     valid_profits = [p for p in profits if p is not None]
 
@@ -397,7 +379,7 @@ if results and results['status'] == 'Optimal':
         ],
         'Total Net Profit (₹)': [f'₹{p:,.0f}' for p in valid_profits],
     })
-    st.dataframe(sensitivity_df, use_container_width=True)
+    st.dataframe(sensitivity_df, width='stretch')
 
 else:
     st.error(
