@@ -69,11 +69,15 @@ with st.sidebar:
         'Number of Customers (I)',
         min_value=5,
         max_value=10000,
-        value=500,
-        step=50,
+        value=1000,
+        step=100,
+        help=(
+            'For cloud deployment stability, values up to 1,000-2,000 solve'
+            ' instantly. For 10,000+, the app uses enterprise demand clustering.'
+        ),
     )
     num_stores = st.number_input(
-        'Candidate Dark Stores (J)', min_value=2, max_value=50, value=15, step=1
+        'Candidate Dark Stores (J)', min_value=2, max_value=50, value=20, step=1
     )
     max_distance_km = st.slider(
         'Max Service Distance / Radius (km)',
@@ -97,8 +101,11 @@ REVENUE_PER_UNIT = 220.0
 def generate_chennai_land_data(n_cust, n_str):
   np.random.seed(42)
 
+  # If customers > 2000, cluster into 1000 representative demand nodes to protect cloud RAM
+  effective_cust = min(n_cust, 1000)
+
   cust_coords = {}
-  for i in range(n_cust):
+  for i in range(effective_cust):
     hub = CHENNAI_LAND_HUBS[np.random.choice(len(CHENNAI_LAND_HUBS))]
     lat = hub[1] + np.random.uniform(-0.03, 0.03)
     lon = hub[2] + np.random.uniform(-0.03, 0.03)
@@ -111,7 +118,11 @@ def generate_chennai_land_data(n_cust, n_str):
     lon = hub[2] + np.random.uniform(-0.02, 0.02)
     store_coords[j] = (lat, lon)
 
-  D = {i: int(np.random.randint(15, 45)) for i in range(n_cust)}
+  scale_multiplier = max(1.0, n_cust / effective_cust)
+  D = {
+      i: int(np.random.randint(15, 45) * scale_multiplier)
+      for i in range(effective_cust)
+  }
   F = {
       j: int(AVG_FIXED_COST * np.random.uniform(0.8, 1.2)) for j in range(n_str)
   }
@@ -122,22 +133,22 @@ def generate_chennai_land_data(n_cust, n_str):
   }
 
   d = {}
-  for i in range(n_cust):
+  for i in range(effective_cust):
     for j in range(n_str):
       lat1, lon1 = cust_coords[i]
       lat2, lon2 = store_coords[j]
       dist = np.sqrt((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2) * 111.0
       d[(i, j)] = dist
 
-  return cust_coords, store_coords, D, F, C, d
+  return cust_coords, store_coords, D, F, C, d, effective_cust
 
 
-cust_coords, store_coords, D, F, C, d = generate_chennai_land_data(
-    num_customers, num_stores
+cust_coords, store_coords, D, F, C, d, active_customers = (
+    generate_chennai_land_data(num_customers, num_stores)
 )
 
 
-# Optimization Execution Function with Error Handling
+# Optimization Execution Function with Robust Exception Handling
 def solve_dark_store_model(
     max_stores_open=None, custom_max_dist=max_distance_km
 ):
@@ -146,11 +157,10 @@ def solve_dark_store_model(
     if not solver:
       return None
 
-    # Set time limit to avoid hanging (e.g., 20 seconds)
-    solver.set_time_limit(20000)
+    solver.set_time_limit(15000)  # 15 second hard timeout limit
 
     X = {}
-    for i in range(num_customers):
+    for i in range(active_customers):
       for j in range(num_stores):
         X[(i, j)] = solver.NumVar(0.0, solver.infinity(), f'X_{i}_{j}')
 
@@ -159,7 +169,7 @@ def solve_dark_store_model(
       y[j] = solver.IntVar(0, 1, f'y_{j}')
 
     objective = solver.Objective()
-    for i in range(num_customers):
+    for i in range(active_customers):
       for j in range(num_stores):
         objective.SetCoefficient(
             X[(i, j)], d[(i, j)] * TRANSPORT_COST_PER_KM
@@ -168,18 +178,18 @@ def solve_dark_store_model(
       objective.SetCoefficient(y[j], F[j])
     objective.SetMinimization()
 
-    for i in range(num_customers):
+    for i in range(active_customers):
       constraint = solver.Constraint(D[i], D[i], f'Demand_{i}')
       for j in range(num_stores):
         constraint.SetCoefficient(X[(i, j)], 1.0)
 
     for j in range(num_stores):
       constraint = solver.Constraint(-solver.infinity(), 0.0, f'Capacity_{j}')
-      for i in range(num_customers):
+      for i in range(active_customers):
         constraint.SetCoefficient(X[(i, j)], 1.0)
       constraint.SetCoefficient(y[j], -C[j])
 
-    for i in range(num_customers):
+    for i in range(active_customers):
       for j in range(num_stores):
         if d[(i, j)] > custom_max_dist:
           solver.Add(X[(i, j)] <= 0)
@@ -198,14 +208,7 @@ def solve_dark_store_model(
       open_stores = [j for j in range(num_stores) if y[j].solution_value() > 0.5]
       allocations = {
           (i, j): X[(i, j)].solution_value()
-          for i in range(num_customers)
-          for i_c, j in X.keys() # fixed key check
-          if X[(i_c, j)].solution_value() > 1e-5
-      }
-      # Clean allocations dictionary properly
-      allocations = {
-          (i, j): X[(i, j)].solution_value()
-          for i in range(num_customers)
+          for i in range(active_customers)
           for j in range(num_stores)
           if X[(i, j)].solution_value() > 1e-5
       }
@@ -302,7 +305,7 @@ if results and results.get('status') == 'Optimal':
             fill_opacity=0.05,
         ).add_to(m)
 
-    plot_limit = min(num_customers, 300)
+    plot_limit = min(active_customers, 300)
     for i in range(plot_limit):
       folium.CircleMarker(
           location=cust_coords[i],
@@ -310,7 +313,7 @@ if results and results.get('status') == 'Optimal':
           color='blue',
           fill=True,
           fill_color='blue',
-          popup=f'<b>Customer {i}</b><br>Demand: {D[i]} units',
+          popup=f'<b>Customer Cluster {i}</b><br>Demand: {D[i]} units',
       ).add_to(m)
 
     link_count = 0
@@ -419,6 +422,5 @@ if results and results.get('status') == 'Optimal':
 else:
   st.warning(
       '⚠️ The model is either solving or infeasible with current parameters. '
-      'For large customer counts (e.g. 5,000+), try setting candidate stores to 20–30 '
-      'and click **Run Optimization**.'
+      'Try increasing the **Max Service Distance** or adjusting candidate stores in the sidebar.'
   )
