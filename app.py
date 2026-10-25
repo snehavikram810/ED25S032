@@ -13,11 +13,21 @@ st.set_page_config(
     layout='wide',
 )
 
-# Custom CSS styling for a polished UI
+# Custom CSS styling for polished UI and huge metric box
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .profit-box {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        color: white;
+        padding: 25px;
+        border-radius: 12px;
+        text-align: center;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        margin-bottom: 25px;
+    }
+    .profit-box h2 { margin: 0; font-size: 1.8rem; font-weight: 600; color: #e3f2fd; }
+    .profit-box h1 { margin: 10px 0 0 0; font-size: 3rem; font-weight: 700; color: #ffffff; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -51,70 +61,64 @@ CHENNAI_LAND_HUBS = [
     ('Ashok Nagar', 13.0378, 80.2078),
 ]
 
-# Sidebar Configuration inside a Form with an explicit Submit Button
+# Sidebar: Exactly the 3 requested inputs
 with st.sidebar:
   st.header('⚙️ Model Parameters')
   with st.form(key='optimization_form'):
     num_customers = st.number_input(
         'Number of Customers (I)',
         min_value=5,
-        max_value=10000,
-        value=100,
-        step=50,
+        max_value=15000,
+        value=10000,
+        step=500,
     )
     num_stores = st.number_input(
-        'Candidate Dark Stores (J)', min_value=2, max_value=50, value=10, step=1
+        'Candidate Dark Stores (J)', min_value=2, max_value=60, value=50, step=1
     )
     max_distance_km = st.slider(
         'Max Service Distance / Radius (km)',
         min_value=2.0,
-        max_value=30.0,
-        value=12.0,
+        max_value=50.0,
+        value=15.0,
         step=1.0,
-    )
-
-    st.subheader('Financial & Operational Inputs')
-    avg_fixed_cost = st.number_input(
-        'Base Fixed Cost per Store (₹)', value=120000, step=10000
-    )
-    transport_cost_per_km = st.number_input(
-        'Transport Cost per Unit-km (₹)', value=15.0, step=1.0
-    )
-    revenue_per_unit = st.number_input(
-        'Revenue per Unit Sold (₹)', value=180.0, step=10.0
     )
 
     submit_button = st.form_submit_button(
         label='🚀 Run Optimization', use_container_width=True
     )
 
+# Internal Financial Parameters (automated)
+AVG_FIXED_COST = 150000
+TRANSPORT_COST_PER_KM = 12.0
+REVENUE_PER_UNIT = 220.0
+
 
 @st.cache_data
-def generate_chennai_land_data(n_cust, n_str, base_cost):
+def generate_chennai_land_data(n_cust, n_str):
   np.random.seed(42)
 
   cust_coords = {}
   for i in range(n_cust):
     hub = CHENNAI_LAND_HUBS[np.random.choice(len(CHENNAI_LAND_HUBS))]
-    lat = hub[1] + np.random.uniform(-0.025, 0.025)
-    lon = hub[2] + np.random.uniform(-0.025, 0.025)
+    lat = hub[1] + np.random.uniform(-0.03, 0.03)
+    lon = hub[2] + np.random.uniform(-0.03, 0.03)
     cust_coords[i] = (lat, lon)
 
   store_coords = {}
   for j in range(n_str):
     hub = CHENNAI_LAND_HUBS[j % len(CHENNAI_LAND_HUBS)]
-    lat = hub[1] + np.random.uniform(-0.015, 0.015)
-    lon = hub[2] + np.random.uniform(-0.015, 0.015)
+    lat = hub[1] + np.random.uniform(-0.02, 0.02)
+    lon = hub[2] + np.random.uniform(-0.02, 0.02)
     store_coords[j] = (lat, lon)
 
   D = {i: int(np.random.randint(15, 45)) for i in range(n_cust)}
   F = {
-      j: int(base_cost * np.random.uniform(0.85, 1.15)) for j in range(n_str)
+      j: int(AVG_FIXED_COST * np.random.uniform(0.8, 1.2)) for j in range(n_str)
   }
 
   total_demand = sum(D.values())
   C = {
-      j: int(total_demand * np.random.uniform(0.3, 0.6)) for j in range(n_str)
+      j: int(total_demand * np.random.uniform(0.15, 0.35)) for j in range(n_str)
   }
 
   d = {}
@@ -129,7 +133,7 @@ def generate_chennai_land_data(n_cust, n_str, base_cost):
 
 
 cust_coords, store_coords, D, F, C, d = generate_chennai_land_data(
-    num_customers, num_stores, avg_fixed_cost
+    num_customers, num_stores
 )
 
 
@@ -150,11 +154,13 @@ def solve_dark_store_model(
   for j in range(num_stores):
     y[j] = solver.IntVar(0, 1, f'y_{j}')
 
-  # Objective: Minimize Total Cost (Transport Cost + Fixed Cost)
+  # Objective: Minimize Transport Cost + Fixed Cost
   objective = solver.Objective()
   for i in range(num_customers):
     for j in range(num_stores):
-      objective.SetCoefficient(X[(i, j)], d[(i, j)] * transport_cost_per_km)
+      objective.SetCoefficient(
+          X[(i, j)], d[(i, j)] * TRANSPORT_COST_PER_KM
+      )
   for j in range(num_stores):
     objective.SetCoefficient(y[j], F[j])
   objective.SetMinimization()
@@ -216,42 +222,69 @@ if results and results['status'] == 'Optimal':
   st.success('✅ Optimal Solution Found Successfully!')
 
   total_demand_val = sum(D.values())
-  total_revenue = total_demand_val * revenue_per_unit
+  total_revenue = total_demand_val * REVENUE_PER_UNIT
   total_system_cost = results['total_cost']
   total_profit = total_revenue - total_system_cost
 
+  # --- HUGE HIGHLIGHTED PROFIT BOX ---
+  st.markdown(
+      f"""
+    <div class="profit-box">
+        <h2>MAXIMUM NET SYSTEM PROFIT</h2>
+        <h1>₹ {total_profit:,.2f}</h1>
+    </div>
+    """,
+      unsafe_allow_html=True,
+  )
+
+  # KPI Metrics Row
   col1, col2, col3, col4 = st.columns(4)
-  col1.metric('Total Net Profit', f'₹ {total_profit:,.0f}')
-  col2.metric('Total System Cost', f'₹ {total_system_cost:,.0f}')
-  col3.metric('Open Dark Stores', f"{len(results['open_stores'])} / {num_stores}")
-  col4.metric('Total Demand', f'{total_demand_val:,} units')
+  col1.metric('Total System Cost', f'₹ {total_system_cost:,.0f}')
+  col2.metric('Open Dark Stores', f"{len(results['open_stores'])} / {num_stores}")
+  col3.metric('Total Customer Demand', f'{total_demand_val:,} units')
+  col4.metric('Total Revenue', f'₹ {total_revenue:,.0f}')
 
   # --- TABS FOR ORGANIZED VIEW ---
   tab1, tab2, tab3 = st.tabs(
-      ['🗺️ Detailed Solution Map', '📊 KPI & Allocation Table', '📈 Profit Scenario Analysis']
+      ['🗺️ Detailed Solution Map', '📊 KPI & Allocation Table', '📈 Profit Scenario Analysis (2, 5, 10, 20, 25)']
   )
 
   with tab1:
     st.subheader(
-        'Geospatial Visualisation across Chennai Land Hubs & Customer'
-        ' Allocations'
+        'Detailed Geospatial Map with Comprehensive Dark Store Analytics'
     )
     m = folium.Map(location=(13.0827, 80.2707), zoom_start=12)
 
-    # Plot Stores
+    # Plot Detailed Dark Stores
     for j in range(num_stores):
       is_open = j in results['open_stores']
       color = 'green' if is_open else 'red'
       icon_name = 'shopping-cart' if is_open else 'ban'
-      status_text = (
-          f'OPEN (Cap: {C[j]}, Cost: ₹{F[j]:,})'
-          if is_open
-          else 'CLOSED (Candidate)'
+
+      # Calculate specific store metrics for popup
+      assigned_demand = sum(
+          val for (cust, store), val in results['allocations'].items() if store == j
       )
+      utilization = (
+          (assigned_demand / C[j]) * 100 if is_open and C[j] > 0 else 0
+      )
+      status_label = '🟢 OPEN' if is_open else '🔴 CLOSED'
+
+      popup_html = f"""
+            <div style="font-family: Arial; width: 220px;">
+                <h4 style="margin: 0; color: #333;">Dark Store #{j}</h4>
+                <hr style="margin: 5px 0;">
+                <b>Status:</b> {status_label}<br>
+                <b>Fixed Cost:</b> ₹{F[j]:,}<br>
+                <b>Capacity:</b> {C[j]:,} units<br>
+                <b>Assigned Demand:</b> {assigned_demand:.1f} units<br>
+                <b>Utilization:</b> {utilization:.1f}%<br>
+            </div>
+            """
 
       folium.Marker(
           location=store_coords[j],
-          popup=f'<b>Dark Store {j}</b><br>Status: {status_text}',
+          popup=folium.Popup(popup_html, max_width=250),
           icon=folium.Icon(color=color, icon=icon_name, prefix='fa'),
       ).add_to(m)
 
@@ -266,7 +299,7 @@ if results and results['status'] == 'Optimal':
         ).add_to(m)
 
     # Plot Customers (sample subset if too large for browser performance)
-    plot_limit = min(num_customers, 500)
+    plot_limit = min(num_customers, 400)
     for i in range(plot_limit):
       folium.CircleMarker(
           location=cust_coords[i],
@@ -277,28 +310,27 @@ if results and results['status'] == 'Optimal':
           popup=f'<b>Customer {i}</b><br>Demand: {D[i]} units',
       ).add_to(m)
 
-    if num_customers > 500:
+    if num_customers > 400:
       st.info(
-          f'ℹ️ Displaying first {plot_limit} customers on the interactive map '
-          'to ensure optimal browser rendering performance.'
+          f'ℹ️ Displaying first {plot_limit} customers on the map for smooth browser rendering.'
       )
 
-    # Plot Allocation Links
+    # Plot Allocation Links (sample subset)
     link_count = 0
     for (i, j), val in results['allocations'].items():
-      if link_count < 300:  # limit lines for clean rendering
+      if link_count < 250:
         folium.PolyLine(
             locations=[cust_coords[i], store_coords[j]],
             color='gray',
             weight=1,
-            opacity=0.5,
+            opacity=0.4,
         ).add_to(m)
         link_count += 1
 
     st_folium(m, width=1100, height=550)
 
   with tab2:
-    st.subheader('📋 Detailed Solution & KPI Breakdown')
+    st.subheader('📋 Detailed Solution & KPI Breakdown Table')
 
     store_summary = []
     for j in range(num_stores):
@@ -322,11 +354,11 @@ if results and results['status'] == 'Optimal':
 
   with tab3:
     st.subheader(
-        '📈 Profit Analysis when Up to 2, 5, 10, 20, 25 Dark Stores Open'
+        '📈 Profit Analysis for 2, 5, 10, 20, and 25 Allowed Open Dark Stores'
     )
     st.markdown(
-        'Evaluating network profitability (Revenue minus Transport & Fixed Facility Costs) '
-        'across different restrictions on maximum open dark stores.'
+        'Evaluating network profitability when restricting the maximum number of open dark stores '
+        'to exactly 2, 5, 10, 20, and 25 locations.'
     )
 
     store_limits = [2, 5, 10, 20, 25]
@@ -354,41 +386,34 @@ if results and results['status'] == 'Optimal':
         if p is not None
     ]
     valid_profits = [p for p in profits if p is not None]
+    valid_costs = [c for c in costs if c is not None]
 
-    fig, ax1 = plt.subplots(figsize=(10, 5))
-    ax1.plot(
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(
         valid_limits,
         valid_profits,
         marker='o',
         color='forestgreen',
         linewidth=2.5,
-        label='Net Profit (₹)',
+        markersize=8,
     )
-    ax1.set_title(
-        'Total Profit vs. Maximum Allowed Open Dark Stores',
+    ax.set_title(
+        'Net Profit vs. Maximum Allowed Open Dark Stores',
         fontsize=12,
         weight='bold',
     )
-    ax1.set_xlabel('Max Allowed Open Dark Stores', fontsize=10)
-    ax1.set_ylabel('Net Profit (₹)', fontsize=10, color='forestgreen')
-    ax1.grid(True, linestyle='--', alpha=0.6)
-
+    ax.set_xlabel('Max Allowed Open Dark Stores', fontsize=10)
+    ax.set_ylabel('Net Profit (₹)', fontsize=10)
+    ax.grid(True, linestyle='--', alpha=0.6)
     st.pyplot(fig)
 
     # Sensitivity Table
     sensitivity_df = pd.DataFrame({
         'Max Stores Allowed': valid_limits,
-        'Total System Cost (₹)': [
-            f'₹{c:,.0f}' for c in costs if c is not None
-        ],
+        'Total System Cost (₹)': [f'₹{c:,.0f}' for c in valid_costs],
         'Total Net Profit (₹)': [f'₹{p:,.0f}' for p in valid_profits],
     })
     st.dataframe(sensitivity_df, use_container_width=True)
-
-    st.info(
-        '💡 **Tip for 10,000 Customers & 50 Stores:** Set `Number of Customers = 10000` '
-        'and `Candidate Stores = 50` in the sidebar and click **Run Optimization** to execute the enterprise run.'
-    )
 
 else:
     st.error(
